@@ -14,11 +14,78 @@ var gameState = true;
 var startTime = Date.now() + 3000;
 var score = 0;
 var health = 3;
-
-
 var obstacleArray = []
 var displayedObjects = []
 
+var ws = new SockJS("/socket")
+var socket = Stomp.over(ws)
+var enemies = []
+var playerId
+var isConnected
+socket.connect({}, onSocketConnected)
+
+function onSocketConnected () {
+  var url = socket.ws._transport.url.split("/")
+  playerId = url[url.length-2]
+
+  console.log('Connected to socket server')
+  isConnected = true
+
+  // Reset enemies on reconnect
+  enemies = []
+
+  /* subscribe to /move */
+  socket.subscribe("/move", onMovePlayer)
+  /* subscribe to /remove-player */
+  socket.subscribe("/remove-player", onRemovePlayer)
+}
+
+function playerById (id) {
+  for (var i = 0; i < enemies.length; i++) {
+    if (enemies[i].id === id) {
+      return enemies[i]
+    }
+  }
+
+  return false
+}
+
+function onMovePlayer (message) {
+  data = JSON.parse(message.body)
+  if (playerId === undefined || data.id === undefined || data.id === playerId) {
+    return
+  }
+
+  var movePlayer = playerById(data.id)
+
+  // Player not found
+  if (!movePlayer) {
+    enemies.push(data)
+    return
+  }
+
+  // Update player position
+  movePlayer.x = data.x
+  movePlayer.y = data.y
+}
+
+function onRemovePlayer (message) {
+  data = JSON.parse(message.body)
+  if (playerId === undefined || data.id === undefined || data.id === playerId) {
+    return
+  }
+
+  var removePlayer = playerById(data.id)
+
+  // Player not found
+  if (!removePlayer) {
+    console.log('Player not found: ', data.id)
+    return
+  }
+
+  // Remove player from array
+  enemies.splice(enemies.indexOf(removePlayer), 1)
+}
 
 var background = new Image();
 background.src = "http://i.imgur.com/CpX4uAU.jpg";
@@ -183,6 +250,14 @@ function draw() {
 
 
   game.drawImage(playerImage, x, y, height * imageRatio, height);
+
+  enemies.forEach(function(enemy) {
+    game.drawImage(playerImage, enemy.x, enemy.y, height * imageRatio, height);
+  });
+
+  if (isConnected) {
+    socket.send("/move", {}, JSON.stringify({id: playerId, x: x, y: y}))
+  }
 }
 
 var gameUpdate = setInterval(draw, 20);
